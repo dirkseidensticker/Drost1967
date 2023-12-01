@@ -1,0 +1,166 @@
+---
+output: github_document
+---
+
+# Drost 1967 "Töpferei in Afrika"
+
+- - -
+
+> :warning: **Warning:** This repository is still work-in-progress!!
+
+- - -
+
+This repository contains geo-referenced information on potters' communities throughout Africa.
+
+The maps were geo-references using QGIS (v3.22.1-Białowieża) relying on nine manually set reference points (tranformations parameters: Polynomial 3 & cubic spline) into EPSG:4326 CRS.
+
+## Stages of the *chaîne opératoire* 
+
+The following stages of the *chaîne opératoire* were recorded:
+
+| Stage       | Description   | Source |
+| ----------- | ------------- | ------ |
+| RAWMATERIAL | Raw material sources (fluvial/river, termite mounds, mining) | p. 19 map 1 |
+| PREPARATION | Raw material preperation | p. 33 map 2 |
+| PRIMARY_SHAPING | Primary shaping technique | p. 55-79 map 3-6 |
+| SECONDARY_SHAPING | Secondary shaping technique | p. 55-79 map 3-6 |
+| FIRING      | Firing        | p. 217 map 17 |
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(rnaturalearth)
+library(tidyverse)
+library(geojsonsf)
+
+d <- geojsonsf::geojson_sf("Drost1967.geojson")
+
+# naturalearth geodata
+land10 <- ne_download(scale = 10, type = 'land', category = 'physical', returnclass = "sf")
+rivers10 <- ne_download(scale = 10, type = 'rivers_lake_centerlines', category = 'physical', returnclass = "sf")
+lakes10 <- ne_download(scale = 10, type = 'lakes', category = 'physical', returnclass = "sf")
+coast10 <- ne_download(scale = 10, type = 'coastline', category = 'physical', returnclass = "sf")
+```
+
+## Maps
+
+
+```{r map, warning = FALSE, echo = FALSE, fig.align = 'center', dpi = 300, out.width = '100%'}
+cowplot::plot_grid(
+  ggplot() +  
+    geom_sf(data = land10, fill = "white", color = NA) + 
+    geom_sf(data = coast10) + 
+    geom_sf(data = rivers10) +
+    geom_sf(data = lakes10) + 
+    geom_sf(data = d %>% dplyr::filter(!is.na(RAWMATERIAL)), aes(fill = RAWMATERIAL), shape = 21) + 
+    coord_sf(xlim = c(-18, 50),
+             ylim = c(-35, 35)) + 
+    theme(legend.position = "right"),
+  ggplot() +  
+    geom_sf(data = land10, fill = "white", color = NA) + 
+    geom_sf(data = coast10) + 
+    geom_sf(data = rivers10) +
+    geom_sf(data = lakes10) + 
+    geom_sf(data = d %>% dplyr::filter(!is.na(PREPARATION)), aes(fill = PREPARATION), shape = 21) + 
+    coord_sf(xlim = c(-18, 50),
+             ylim = c(-35, 35)) + 
+    theme(legend.position = "right"),
+  ggplot() +  
+    geom_sf(data = land10, fill = "white", color = NA) + 
+    geom_sf(data = coast10) + 
+    geom_sf(data = rivers10) +
+    geom_sf(data = lakes10) + 
+    geom_sf(data = d %>% dplyr::filter(!is.na(PRIMARY_SHAPING)), aes(fill = PRIMARY_SHAPING), shape = 21) + 
+    coord_sf(xlim = c(-18, 50),
+             ylim = c(-35, 35)) + 
+    theme(legend.position = "right"),
+  ggplot() +  
+    geom_sf(data = land10, fill = "white", color = NA) + 
+    geom_sf(data = coast10) + 
+    geom_sf(data = rivers10) +
+    geom_sf(data = lakes10) + 
+    geom_sf(data = d %>% dplyr::filter(!is.na(FIRING)), aes(fill = FIRING), shape = 21) + 
+    coord_sf(xlim = c(-18, 50),
+             ylim = c(-35, 35)) + 
+    theme(legend.position = "right"), 
+  align = "hv"
+)
+```
+
+## Collective *chaînes opératoires*
+
+```{r echo = FALSE}
+d.clean <- d %>% 
+  as.data.frame() %>%
+  dplyr::select(RAWMATERIAL, PREPARATION, PRIMARY_SHAPING, SECONDARY_SHAPING, FIRING) %>%
+  stats::na.omit() %>%
+  tibble::rowid_to_column("ID")
+
+# run MCA for grouping
+
+d.mca.res <- FactoMineR::MCA(d.clean %>% tibble::column_to_rownames("ID"), graph = F)
+
+factoextra::fviz_mca_biplot(d.mca.res, repel = T)
+
+d.mca.clust <- FactoMineR::HCPC(d.mca.res, nb.clust = 0, graph = FALSE, iter.max = 100, min = 3, max = NULL)
+
+# d.mca.clust$desc.var
+
+d.clust <- d.mca.clust$data.clust %>%
+  tibble::rownames_to_column("ID") %>% 
+  dplyr::mutate(ID = as.integer(ID)) %>% 
+  dplyr::select(ID, clust) # %>% dplyr::left_join(d.clean, by = "ID")
+
+# building edgelist per community
+
+
+```
+
+
+
+
+```{r eval=FALSE, echo=FALSE}
+d.lng <- d.clean %>% 
+  reshape2::melt(id.vars = "ID") %>%
+  dplyr::arrange(ID)
+
+c.unq <- unique(d.clean$ID)
+el.lst <- list()
+v.n.lst <- list()
+for (i in 1:length(c.unq)) {
+  i = 1
+  
+  # c.el <- 
+  d.lng %>% 
+    dplyr::filter(ID == c.unq[i])
+  
+  
+    %>%
+    dplyr::mutate(FROM = lag(OPERATION), 
+                  TO = OPERATION) %>%
+    dplyr::select(OBJ, FROM, TO) %>%
+    dplyr::filter(!is.na(FROM))
+  
+  
+  
+  
+  v.n <- network::network(
+      v.el[,c("FROM", "TO")], 
+      loops = TRUE, 
+      multiple = TRUE)
+  
+  
+  v.n.df <- ggnetwork::ggnetwork(v.n) %>%
+    dplyr::mutate(OBJ = unique(v.el$OBJ))
+
+  el.lst[[i]] <- v.el
+  v.n.lst[[i]] <- v.n.df
+}
+el <- do.call(rbind, el.lst)
+el
+
+v.n <- do.call(rbind, v.n.lst)
+v.n
+
+
+```
+
